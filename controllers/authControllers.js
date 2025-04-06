@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import HttpError from "../helpers/HttpError.js";
 
 import * as authServices from "../services/authService.js";
 
@@ -52,5 +53,27 @@ export const updateAvatar = async (req, res) => {
 
   res.json({
     avatarURL: result.avatarURL,
+  });
+};
+
+export const verifyEmail = async (req, res) => {
+  const { verificationToken } = req.params;
+  const result = await authServices.verifyEmail(verificationToken);
+
+  if (!result) {
+    throw HttpError(404, "User not found");
+  }
+
+  res.json({
+    message: "Verification successful",
+  });
+};
+
+export const resendVerifyEmail = async (req, res) => {
+  const { email } = req.body;
+  await authServices.resendVerifyEmail(email);
+
+  res.json({
+    message: "Verification email sent",
   });
 };

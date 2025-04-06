@@ -1,9 +1,25 @@
 import bcrypt from "bcrypt";
+import gravatar from "gravatar";
+import nodemailer from "nodemailer";
+import { v4 as uuidv4 } from "uuid";
 
 import User from "../models/User.js";
 import HttpError from "../helpers/HttpError.js";
 import { createToken } from "../helpers/jwt.js";
-import gravatar from "gravatar";
+
+const { UKR_NET_EMAIL, UKR_NET_PASSWORD } = process.env;
+
+const nodeMailerConfig = {
+  host: "smtp.ukr.net",
+  port: 465,
+  secure: true,
+  auth: {
+    user: UKR_NET_EMAIL,
+    pass: UKR_NET_PASSWORD,
+  },
+};
+
+const transport = nodemailer.createTransport(nodeMailerConfig);
 
 export const findUser = (query) =>
   User.findOne({
@@ -35,12 +51,28 @@ export const signupUser = async (payload) => {
     s: "250",
     d: "retro",
   });
+  const verificationToken = uuidv4();
 
   const newUser = await User.create({
     ...payload,
     password: hashPassword,
     avatarURL,
+    verificationToken,
   });
+
+  const emailData = {
+    subject: "Email verification",
+    to: email,
+    from: UKR_NET_EMAIL,
+    html: `<h1>Hello!</h1>
+    <p>Please verify your email: <a href="http://localhost:3000/api/auth/verify/${verificationToken}">Verify</a></p>`,
+  };
+
+  transport
+    .sendMail(emailData)
+    .then(() => console.log("Email sent successfully"))
+    .catch((err) => console.log("Error sending email:", err.message));
+
   return newUser;
 };
 
@@ -54,6 +86,10 @@ export const signinUser = async (payload) => {
 
   if (!user) {
     throw HttpError(401, "Email or password incorrect");
+  }
+
+  if (!user.verify) {
+    throw HttpError(401, "Email not verified");
   }
 
   const passwordCompare = await bcrypt.compare(password, user.password);
@@ -85,4 +121,42 @@ export const updateUserAvatar = async (email, avatarURL) => {
   }
 
   return user.update({ avatarURL }, { returning: true });
+};
+
+export const verifyEmail = async (verificationToken) => {
+  const user = await findUser({ verificationToken });
+
+  if (!user) {
+    throw HttpError(404, "User not found");
+  }
+
+  return user.update(
+    { verify: true, verificationToken: null },
+    { returning: true }
+  );
+};
+
+export const resendVerifyEmail = async (email) => {
+  const user = await findUser({ email });
+
+  if (!user) {
+    throw HttpError(404, "User not found");
+  }
+
+  if (user.verify) {
+    throw HttpError(400, "Verification has already been passed");
+  }
+
+  const emailData = {
+    subject: "Email verification",
+    to: email,
+    from: UKR_NET_EMAIL,
+    html: `<h1>Hello!</h1>
+    <p>Please verify your email: <a href="http://localhost:3000/api/auth/verify/${user.verificationToken}">Verify</a></p>`,
+  };
+
+  return transport
+    .sendMail(emailData)
+    .then(() => console.log("Email sent successfully"))
+    .catch((err) => console.log("Error sending email:", err.message));
 };
